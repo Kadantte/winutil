@@ -49,7 +49,7 @@ Function Get-WinUtilToggleStatus {
         else{
             return $false
         }
-    }    
+    }
     if($ToggleSwitch -eq "WPFToggleShowExt"){
         $hideextvalue = (Get-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced').HideFileExt
         if($hideextvalue -eq 0){
@@ -58,7 +58,7 @@ Function Get-WinUtilToggleStatus {
         else{
             return $false
         }
-    }    
+    }
     if($ToggleSwitch -eq "WPFToggleSnapWindow"){
         $hidesnap = (Get-ItemProperty -path 'HKCU:\Control Panel\Desktop').WindowArrangementActive
         if($hidesnap -eq 0){
@@ -76,7 +76,7 @@ Function Get-WinUtilToggleStatus {
         else{
             return $true
         }
-    }    
+    }
     if($ToggleSwitch -eq "WPFToggleSnapSuggestion"){
         $hidesnap = (Get-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced').SnapAssist
         if($hidesnap -eq 0){
@@ -85,7 +85,7 @@ Function Get-WinUtilToggleStatus {
         else{
             return $true
         }
-    }        
+    }
     if($ToggleSwitch -eq "WPFToggleMouseAcceleration"){
         $MouseSpeed = (Get-ItemProperty -path 'HKCU:\Control Panel\Mouse').MouseSpeed
         $MouseThreshold1 = (Get-ItemProperty -path 'HKCU:\Control Panel\Mouse').MouseThreshold1
@@ -98,9 +98,27 @@ Function Get-WinUtilToggleStatus {
             return $false
         }
     }
+    if($ToggleSwitch -eq "WPFToggleTaskbarSearch"){
+        $SearchButton = (Get-ItemProperty -path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search").SearchboxTaskbarMode
+        if($SearchButton -eq 0){
+            return $false
+        }
+        else{
+            return $true
+        }
+    }
     if ($ToggleSwitch -eq "WPFToggleStickyKeys") {
         $StickyKeys = (Get-ItemProperty -path 'HKCU:\Control Panel\Accessibility\StickyKeys').Flags
         if($StickyKeys -eq 58){
+            return $false
+        }
+        else{
+            return $true
+        }
+    }
+    if ($ToggleSwitch -eq "WPFToggleTaskView") {
+        $TaskView = (Get-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced').ShowTaskViewButton
+        if($TaskView -eq 0){
             return $false
         }
         else{

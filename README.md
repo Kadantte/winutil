@@ -1,6 +1,8 @@
 # Chris Titus Tech's Windows Utility
 
-This utility is a compilation of Windows tasks I perform on each Windows system I use. It is meant to streamline *installs*, debloat with *tweaks*, troubleshoot with *config*, and fix Windows *updates*. I am extremely picky about any contributions to keep this project clean and efficient. 
+[![Version](https://img.shields.io/github/v/release/ChrisTitusTech/winutil?color=7a39fb)](https://github.com/ChrisTitusTech/winutil/releases/latest)
+
+This utility is a compilation of Windows tasks I perform on each Windows system I use. It is meant to streamline *installs*, debloat with *tweaks*, troubleshoot with *config*, and fix Windows *updates*. I am extremely picky about any contributions to keep this project clean and efficient.
 
 ![screen-install](screen-install.png)
 
@@ -22,25 +24,22 @@ Winutil must be run in Admin mode because it performs system-wide tweaks. To ach
 
 #### Simple way
 
+```ps1
+irm "https://christitus.com/win" | iex
 ```
-irm https://christitus.com/win | iex
-```
-Courtesy of the issue raised at: [#144](/../../issues/144)
+Courtesy of the issue: [#144](/../../issues/144)
 
-or by executing: 
-```
-iwr -useb https://christitus.com/win | iex
+If this site is not reachable from your country, please try running it directly from GitHub.
+```ps1
+irm "https://github.com/ChrisTitusTech/winutil/releases/latest/download/winutil.ps1" | iex
 ```
 
-if for some reason this site is not reachable from your country please try running it directly from github
+If you still have Issues, refer to [Known Issues](https://github.com/ChrisTitusTech/winutil/blob/main/KnownIssues.md).
 
-```
-irm https://raw.githubusercontent.com/ChrisTitusTech/winutil/main/winutil.ps1 | iex
-```
 
 #### Automation
 
-Some features are avaliable through automation. This allows you to save your config file pass it to Winutil walk away and come back to a finished system. Here is how you can set it up currently with Winutil >24.01.15
+Some features are available through automation. This allows you to save your config file pass it to Winutil walk away and come back to a finished system. Here is how you can set it up currently with Winutil >24.01.15
 
 1. On the Install Tab, click "Get Installed", this will get all installed apps **supported by Winutil** on the system
   ![GetInstalled](/wiki/Get-Installed.png)
@@ -56,21 +55,6 @@ iex "& { $(irm christitus.com/win) } -Config [path-to-your-config] -Run"
 7. Have a cup of coffee! Come back when it's done.
 
 
-## Issues:
-
-- If you are unable to resolve christitus.com/win and are getting  errors launching the tool, it might be due to India blocking GitHub's content domain and preventing downloads. You may use a VPN or change your DNS provider to Google/Cloudflare/etc.
-
-Source: <https://timesofindia.indiatimes.com/gadgets-news/github-content-domain-blocked-for-these-indian-users-reports/articleshow/96687992.cms>
-
-- Windows Security (formerly Defender) and other anti-virus software are known to block the script. The script gets flagged due to the fact that it requires administrator privileges & makes drastic system changes.
-
-- If you are having TLS 1.2 issues, or are having trouble resolving `christitus.com/win` then run with the following command:
-
-```
-[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;iex(New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/ChrisTitusTech/winutil/main/winutil.ps1')
-```
-
-If you are still having issues try changing your DNS provider to 1.1.1.1 || 1.0.0.1 or 8.8.8.8 || 8.8.4.4
 
 ## Support
 - To morally and mentally support the project, make sure to leave a ⭐️!
@@ -84,15 +68,15 @@ If you are still having issues try changing your DNS provider to 1.1.1.1 || 1.0.
 
 - Install
   - Install Selection: Organize programs by category and facilitate installation by enabling users to select programs and initiate the installation process with a single click.
-  
-  - Upgrade All: Upgrade all existing programs to their latest versions, ensuring users have the most up-to-date and feature-rich software. 
-  
+
+  - Upgrade All: Upgrade all existing programs to their latest versions, ensuring users have the most up-to-date and feature-rich software.
+
   - Uninstall Selection: Effortlessly uninstall selected programs, providing users with a streamlined way to remove unwanted software from their system.
-  
+
   - Get Installed: Retrieve a comprehensive list of installed programs on the system, offering users visibility into the software currently installed on their computer.
-  
+
   - Import / Export: Enable users to import or export the selection list of programs, allowing them to save their preferred program configurations or share them with others. This feature promotes convenience and flexibility in managing program selections across different systems.
- 
+
 - Tweaks
   - Recommended Selection: Provides pre-defined templates tailored for desktop, laptop, and minimal configurations, allowing users to select recommended settings and optimizations specific to their system type.
 
@@ -114,7 +98,7 @@ If you are still having issues try changing your DNS provider to 1.1.1.1 || 1.0.
 
 - Updates:
   - Default (Out of Box) Settings: Provides the default settings that come with Windows for updates.
-  
+
   - Security (Recommended) Settings: Offers recommended settings, including a slight delay of feature updates by 2 years and installation of security updates 4 days after release.
 
   - Disable All Updates (Not Recommended!): Allows users to disable all Windows updates, but it's not recommended due to potential security risks.
@@ -128,7 +112,7 @@ If you encounter any challenges or problems with the script, I kindly request th
 
 ## Contribute Code
 
-If you adding, changing, or deleting an Application... submit to **APPLICATIONS branch**. We batch these in at the end of the month.
+Pull Requests are now handled directly on the MAIN branch. This was done since we can now select specific releases to launch via releases in GitHub.
 
 If doing a code change and you can submit a PR to main branch, but I am very selective about these. Do not use a code formatter, massive amounts of line changes, and make multiple feature changes. EACH FEATURE CHANGE SHOULD BE IT'S OWN Pull Request!
 
