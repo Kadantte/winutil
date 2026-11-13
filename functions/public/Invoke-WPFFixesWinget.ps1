@@ -3,12 +3,11 @@ function Invoke-WPFFixesWinget {
     <#
 
     .SYNOPSIS
-        Fixes Winget by running choco install winget 
+        Fixes WinGet by running `choco install winget`
     .DESCRIPTION
-        BravoNorris for the fantastic idea of a button to reinstall winget
+        BravoNorris for the fantastic idea of a button to reinstall WinGet
     #>
-    # Install Choco if not already present
-    Install-WinUtilChoco
-    Start-Process -FilePath "choco" -ArgumentList "install winget -y --force" -NoNewWindow -Wait
 
+    Step-WinUtilJob -Status "Repairing WinGet" -State "Indeterminate"
+    Install-WinUtilWinget -Force
 }

@@ -2,58 +2,50 @@ function Invoke-WPFPresets {
     <#
 
     .SYNOPSIS
-        Sets the options in the tweaks panel to the given preset
+        Sets the checkboxes in winutil to the given preset
 
     .PARAMETER preset
-        The preset to set the options to
+        The preset to set the checkboxes to
 
     .PARAMETER imported
         If the preset is imported from a file, defaults to false
 
-    .PARAMETER checkbox
-        The checkbox to set the options to, defaults to 'WPFTweaks'
+    .PARAMETER checkboxfilterpattern
+        The Pattern to use when filtering through CheckBoxes, defaults to "**"
 
     #>
 
-    param(
-        $preset,
-        [bool]$imported = $false
+    param (
+        [Parameter(position=0)]
+        [Array]$preset = $null,
+
+        [Parameter(position=1)]
+        [bool]$imported = $false,
+
+        [Parameter(position=2)]
+        [string]$checkboxfilterpattern = "**"
     )
 
-    if($imported -eq $true){
+    if ($imported -eq $true) {
         $CheckBoxesToCheck = $preset
-    }
-    Else{
+    } else {
         $CheckBoxesToCheck = $sync.configs.preset.$preset
     }
 
-    $CheckBoxes = $sync.GetEnumerator() | Where-Object { $_.Value -is [System.Windows.Controls.CheckBox] -and $_.Name -notlike "WPFToggle*" }
-    Write-Debug "Getting checkboxes to set $($CheckBoxes.Count)"
-
-    $CheckBoxesToCheck | ForEach-Object {
-        if ($_ -ne $null) {
-            Write-Debug $_
-        }
+    # clear out the filtered pattern so applying a preset replaces the current
+    # state rather than merging with it
+    switch ($checkboxfilterpattern) {
+        "WPFTweak*" { $sync.selectedTweaks = [System.Collections.Generic.List[string]]::new() }
+        "WPFInstall*" { $sync.selectedApps = [System.Collections.Generic.List[string]]::new() }
+        "WPFAppx*" { $sync.selectedAppx = [System.Collections.Generic.List[string]]::new() }
+        "WPFFeature*" { $sync.selectedFeatures = [System.Collections.Generic.List[string]]::new() }
+        "WPFToggle*" { $sync.selectedToggles = [System.Collections.Generic.List[string]]::new() }
+        default {}
     }
-    
-    foreach ($CheckBox in $CheckBoxes) {
-        $checkboxName = $CheckBox.Key
 
-        if (-not $CheckBoxesToCheck)
-        {
-            $sync.$checkboxName.IsChecked = $false
-            continue
-        }
-
-        # Check if the checkbox name exists in the flattened JSON hashtable
-        if ($CheckBoxesToCheck.Contains($checkboxName)) {
-            # If it exists, set IsChecked to true
-            $sync.$checkboxName.IsChecked = $true
-            Write-Debug "$checkboxName is checked"
-        } else {
-            # If it doesn't exist, set IsChecked to false
-            $sync.$checkboxName.IsChecked = $false
-            Write-Debug "$checkboxName is not checked"
-        }
+    if ($preset) {
+        Update-WinUtilSelections -flatJson $CheckBoxesToCheck
     }
+
+    Reset-WPFCheckBoxes -doToggles $false -checkboxfilterpattern $checkboxfilterpattern
 }

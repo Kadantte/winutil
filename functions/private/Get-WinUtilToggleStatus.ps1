@@ -1,119 +1,53 @@
 Function Get-WinUtilToggleStatus {
-    <#
+    param(
+        $ToggleSwitch,
+        [switch]$BypassCache,
+        [switch]$StopOnReadError
+    )
 
-    .SYNOPSIS
-        Pulls the registry keys for the given toggle switch and checks whether the toggle should be checked or unchecked
+    $ToggleSwitchReg = $sync.configs.tweaks.$ToggleSwitch.registry
 
-    .PARAMETER ToggleSwitch
-        The name of the toggle to check
+    if (-not $BypassCache) {
+        if ($null -eq $sync.ToggleStatusCache) {
+            $sync.ToggleStatusCache = @{}
+        }
 
-    .OUTPUTS
-        Boolean to set the toggle's status to
+        if ($sync.ToggleStatusCache.ContainsKey($ToggleSwitch)) {
+            return [bool]$sync.ToggleStatusCache[$ToggleSwitch]
+        }
+    }
 
-    #>
+    $readErrorAction = if ($StopOnReadError) { "Stop" } else { "Continue" }
 
-    Param($ToggleSwitch)
-    if($ToggleSwitch -eq "WPFToggleDarkMode"){
-        $app = (Get-ItemProperty -path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize').AppsUseLightTheme
-        $system = (Get-ItemProperty -path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize').SystemUsesLightTheme
-        if($app -eq 0 -and $system -eq 0){
-            return $true
-        }
-        else{
-            return $false
-        }
+    if (-not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
+        New-PSDrive -PSProvider Registry -Name HKU -Root HKEY_USERS -ErrorAction $readErrorAction | Out-Null
     }
-    if($ToggleSwitch -eq "WPFToggleBingSearch"){
-        $bingsearch = (Get-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search').BingSearchEnabled
-        if($bingsearch -eq 0){
-            return $false
-        }
-        else{
-            return $true
-        }
-    }
-    if($ToggleSwitch -eq "WPFToggleNumLock"){
-        $numlockvalue = (Get-ItemProperty -path 'HKCU:\Control Panel\Keyboard').InitialKeyboardIndicators
-        if($numlockvalue -eq 2){
-            return $true
-        }
-        else{
-            return $false
-        }
-    }
-    if($ToggleSwitch -eq "WPFToggleVerboseLogon"){
-        $VerboseStatusvalue = (Get-ItemProperty -path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').VerboseStatus
-        if($VerboseStatusvalue -eq 1){
-            return $true
-        }
-        else{
-            return $false
-        }
-    }    
-    if($ToggleSwitch -eq "WPFToggleShowExt"){
-        $hideextvalue = (Get-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced').HideFileExt
-        if($hideextvalue -eq 0){
-            return $true
-        }
-        else{
-            return $false
-        }
-    }    
-    if($ToggleSwitch -eq "WPFToggleSnapWindow"){
-        $hidesnap = (Get-ItemProperty -path 'HKCU:\Control Panel\Desktop').WindowArrangementActive
-        if($hidesnap -eq 0){
-            return $false
-        }
-        else{
-            return $true
-        }
-    }
-    if($ToggleSwitch -eq "WPFToggleSnapFlyout"){
-        $hidesnap = (Get-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced').EnableSnapAssistFlyout
-        if($hidesnap -eq 0){
-            return $false
-        }
-        else{
-            return $true
-        }
-    }    
-    if($ToggleSwitch -eq "WPFToggleSnapSuggestion"){
-        $hidesnap = (Get-ItemProperty -path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced').SnapAssist
-        if($hidesnap -eq 0){
-            return $false
-        }
-        else{
-            return $true
-        }
-    }        
-    if($ToggleSwitch -eq "WPFToggleMouseAcceleration"){
-        $MouseSpeed = (Get-ItemProperty -path 'HKCU:\Control Panel\Mouse').MouseSpeed
-        $MouseThreshold1 = (Get-ItemProperty -path 'HKCU:\Control Panel\Mouse').MouseThreshold1
-        $MouseThreshold2 = (Get-ItemProperty -path 'HKCU:\Control Panel\Mouse').MouseThreshold2
 
-        if($MouseSpeed -eq 1 -and $MouseThreshold1 -eq 6 -and $MouseThreshold2 -eq 10){
-            return $true
+    foreach ($regentry in $ToggleSwitchReg) {
+
+        if (Test-Path $regentry.Path -ErrorAction $readErrorAction) {
+            $regstate = (Get-ItemProperty -Path $regentry.Path -ErrorAction $readErrorAction).$($regentry.Name)
+        } else {
+            $regstate = $null
         }
-        else{
+
+        if ($null -eq $regstate) {
+            switch ([string]$regentry.DefaultState) {
+                "true"  { $regstate = $regentry.Value }
+                "false" { $regstate = $regentry.OriginalValue }
+            }
+        }
+
+        if ($regstate -ne $regentry.Value) {
+            if (-not $BypassCache) {
+                $sync.ToggleStatusCache[$ToggleSwitch] = $false
+            }
             return $false
         }
     }
-    if ($ToggleSwitch -eq "WPFToggleStickyKeys") {
-        $StickyKeys = (Get-ItemProperty -path 'HKCU:\Control Panel\Accessibility\StickyKeys').Flags
-        if($StickyKeys -eq 58){
-            return $false
-        }
-        else{
-            return $true
-        }
+
+    if (-not $BypassCache) {
+        $sync.ToggleStatusCache[$ToggleSwitch] = $true
     }
-    if ($ToggleSwitch -eq "WPFToggleTaskbarWidgets") {
-        $TaskbarWidgets = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced").TaskBarDa
-	if($TaskbarWidgets -eq 0) {
-            return $false
-	}
-	else{
-            return $true
-	}
-    }
+    return $true
 }

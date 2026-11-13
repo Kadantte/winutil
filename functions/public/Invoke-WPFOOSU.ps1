@@ -1,43 +1,25 @@
 function Invoke-WPFOOSU {
-    <#
-    .SYNOPSIS
-        Downloads and runs OO Shutup 10 with or without config files
-    .PARAMETER action
-        Specifies how OOSU should be started
-        customize:      Opens the OOSU GUI
-        recommended:    Loads and applies the recommended OOSU policies silently
-        undo:           Resets all policies to factory silently
-    #>
+    Start-WinUtilJob -Name "OOSU" -Description "Downloading O&O ShutUp10++" -Parameters @{
+        DownloadPath = Join-Path $sync.winutildir "ooshutup10.exe"
+    } -ScriptBlock {
+        param($DownloadPath)
 
-    param (
-        [ValidateSet("customize", "recommended", "undo")]
-        [string]$action
-    )
+        Write-WinUtilLog -Component "OOSU" -Message "Downloading O&O ShutUp10++."
 
-    $OOSU_filepath = "$ENV:temp\OOSU10.exe"
+        Save-WinUtilFile -Uri "https://dl5.oo-software.com/files/ooshutup10/OOSU10.exe" -DestinationPath $DownloadPath -ProgressCallback {
+            param($percent, $totalBytes)
 
-    $Initial_ProgressPreference = $ProgressPreference
-    $ProgressPreference = "SilentlyContinue" # Disables the Progress Bar to drasticly speed up Invoke-WebRequest
-    Invoke-WebRequest -Uri "https://dl5.oo-software.com/files/ooshutup10/OOSU10.exe" -OutFile $OOSU_filepath
-
-    switch ($action) 
-    {
-        "customize"{
-            Write-Host "Starting OO Shutup 10 ..."
-            Start-Process $OOSU_filepath
+            # The server may omit Content-Length, in which case only the percentage is known
+            $progress = if ($totalBytes -gt 0) {
+                "$percent% of $([math]::Round($totalBytes / 1MB)) MB"
+            } else {
+                "$percent%"
+            }
+            Step-WinUtilJob -Status "Downloading O&O ShutUp10++ ($progress)" -Percent $percent
         }
-        "recommended"{
-            $oosu_config = "$ENV:temp\ooshutup10_recommended.cfg"
-            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ChrisTitusTech/winutil/main/config/ooshutup10_recommended.cfg" -OutFile $oosu_config
-            Write-Host "Applying recommended OO Shutup 10 Policies"
-            Start-Process $OOSU_filepath -ArgumentList "$oosu_config /quiet" -Wait
-        }
-        "undo"{
-            $oosu_config = "$ENV:temp\ooshutup10_factory.cfg"
-            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ChrisTitusTech/winutil/main/config/ooshutup10_factory.cfg" -OutFile $oosu_config
-            Write-Host "Resetting all OO Shutup 10 Policies"
-            Start-Process $OOSU_filepath -ArgumentList "$oosu_config /quiet" -Wait
-        }
+
+        Step-WinUtilJob -Status "Launching O&O ShutUp10++" -Percent 100
+        Start-Process -FilePath $DownloadPath
+        Write-WinUtilLog -Component "OOSU" -Message "O&O ShutUp10++ launched."
     }
-    $ProgressPreference = $Initial_ProgressPreference
 }

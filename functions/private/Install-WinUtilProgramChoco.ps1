@@ -1,91 +1,116 @@
 function Install-WinUtilProgramChoco {
     <#
+
     .SYNOPSIS
-    Manages the provided programs using Chocolatey
-    
-    .PARAMETER ProgramsToInstall
-    A list of programs to manage
-    
-    .PARAMETER manage
-    The action to perform on the programs, can be either 'Installing' or 'Uninstalling'
-    
-    .NOTES
-    The triple quotes are required any time you need a " in a normal script block.
+        Installs, upgrades or uninstalls packages with Chocolatey and reports each outcome
+
+    .DESCRIPTION
+        One package per call to choco, so the progress bar moves through the list and a failure
+        names the package that failed rather than the whole batch. Choco's own output goes to the
+        log instead of the console, the way the WinGet path reports.
+
+    .PARAMETER Action
+        Install, Upgrade or Uninstall.
+
+    .PARAMETER Programs
+        The package names. For Upgrade, the single entry "all" upgrades everything.
+
+    .PARAMETER ProgressBase
+        Where this call starts within the job's overall progress bar.
+
+    .PARAMETER ProgressSpan
+        How much of the overall bar these packages account for. Zero reports nothing.
+
     #>
-    
-    param(
-        [Parameter(Mandatory, Position=0)]
-        [PsCustomObject]$ProgramsToInstall,
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("Install", "Uninstall", "Upgrade")]
+        [string]$Action,
 
-        [Parameter(Position=1)]
-        [String]$manage = "Installing"
+        [Parameter(Mandatory=$true)]
+        [string[]]$Programs,
+
+        [int]$ProgressBase = 0,
+
+        [int]$ProgressSpan = 0
     )
-    
-    $x = 0
-    $count = $ProgramsToInstall.Count
 
-    # This check isn't really necessary, as there's a couple of checks before this Private Function gets called, but just to make sure ;)
-    if($count -le 0) {
-        throw "Private Function 'Install-WinUtilProgramChoco' expected Parameter 'ProgramsToInstall' to be of size 1 or greater, instead got $count,`nPlease double check your code and re-compile WinUtil."
+    # Chocolatey reports "nothing needed doing" and "it worked, now reboot" through exit codes
+    # rather than as failures
+    $rebootCodes = @{
+        1641 = "installed, the installer started a restart"
+        3010 = "installed, a restart is needed to finish"
     }
+    $nothingToDo = @{
+        2 = "nothing to do"
+    }
+    $verb = $Action.ToLowerInvariant()
+    $chocoAvailable = $null -ne (Get-Command choco -ErrorAction SilentlyContinue)
 
-    Write-Progress -Activity "$manage Applications" -Status "Starting" -PercentComplete 0
-    Write-Host "==========================================="
-    Write-Host "--   Configuring Chocolatey pacakages   ---"
-    Write-Host "==========================================="
-    Foreach ($Program in $ProgramsToInstall){
-        Write-Progress -Activity "$manage Applications" -Status "$manage $($Program.choco) $($x + 1) of $count" -PercentComplete $($x/$count*100)
-        if($manage -eq "Installing"){
-            write-host "Starting install of $($Program.choco) with Chocolatey."
-            try{
-                $tryUpgrade = $false
-		$installOutputFilePath = "$env:TEMP\Install-WinUtilProgramChoco.install-command.output.txt"
-        New-Item -ItemType File -Path $installOutputFilePath
-		$chocoInstallStatus = $(Start-Process -FilePath "choco" -ArgumentList "install $($Program.choco) -y" -Wait -PassThru -RedirectStandardOutput $installOutputFilePath).ExitCode
-            if(($chocoInstallStatus -eq 0) -AND (Test-Path -Path $installOutputFilePath)) {
-                $keywordsFound = Get-Content -Path $installOutputFilePath | Where-Object {$_ -match "reinstall" -OR $_ -match "already installed"}
-		        if ($keywordsFound) {
-		            $tryUpgrade = $true
-		        }
-            }
-		# TODO: Implement the Upgrade part using 'choco upgrade' command, this will make choco consistent with WinGet, as WinGet tries to Upgrade when you use the install command.
-		if ($tryUpgrade) {
-		    throw "Automatic Upgrade for Choco isn't implemented yet, a feature to make it consistent with WinGet, the install command using choco simply failed because $($Program.choco) is already installed."
-		}
-		if(($chocoInstallStatus -eq 0) -AND ($tryUpgrade -eq $false)){
-                    Write-Host "$($Program.choco) installed successfully using Chocolatey."
-                    continue
-                } else {
-                    Write-Host "Failed to install $($Program.choco) using Chocolatey, Chocolatey output:`n`n$(Get-Content -Path $installOutputFilePath)."
-                }
-            } catch {
-                Write-Host "Failed to install $($Program.choco) due to an error: $_"
+    $packages = @($Programs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $total = $packages.Count
+    $index = 0
+
+    foreach ($program in $packages) {
+        $index++
+        if ($ProgressSpan -gt 0 -and $total -gt 0) {
+            $percent = $ProgressBase + [int]((($index - 1) / $total) * $ProgressSpan)
+            Step-WinUtilJob -Status "$Action $program ($index/$total)" -Percent $percent
+        }
+
+        Write-WinUtilLog -Component "Package" -Message "$Action choco package: $program"
+
+        # --no-progress stops choco redrawing a percentage line that only makes sense on a
+        # console nobody is watching
+        $arguments = @($verb, $program, "-y", "--no-progress")
+        # Each worker runspace has its own global scope. Reset the native-command result there so
+        # command-not-found cannot inherit a successful code from earlier work in the same pool.
+        $global:LASTEXITCODE = $null
+        if (-not $chocoAvailable) {
+            $output = "Chocolatey is not installed or is not available on PATH."
+            $exitCode = -1
+        } else {
+            $output = & choco @arguments 2>&1
+            $exitCode = if ($null -eq $global:LASTEXITCODE) { -1 } else { [int]$global:LASTEXITCODE }
+        }
+
+        if ($exitCode -eq 0) {
+            $outcome = "Succeeded"
+            $detail = "exit code 0"
+        } elseif ($rebootCodes.ContainsKey($exitCode)) {
+            $outcome = "Succeeded"
+            $detail = $rebootCodes[$exitCode]
+        } elseif ($nothingToDo.ContainsKey($exitCode)) {
+            $outcome = "Skipped"
+            $detail = $nothingToDo[$exitCode]
+        } else {
+            $outcome = "Failed"
+            $detail = if ($exitCode -eq -1) { "Chocolatey command did not start" } else { "exit code $exitCode" }
+        }
+
+        $level = if ($outcome -eq "Failed") { "ERROR" } else { "INFO" }
+        Write-WinUtilLog -Level $level -Component "Package" -Message "$Action choco package $($outcome.ToLowerInvariant()): $program ($detail)"
+
+        if ($outcome -eq "Failed") {
+            # The reason is somewhere in choco's output, and without it the log says only that
+            # a number came back
+            foreach ($line in @($output | Select-Object -Last 15)) {
+                $text = ([string]$line).Trim()
+                if ($text) { Write-WinUtilLog -Level "WARN" -Component "Package" -Detail -Message $text }
             }
         }
 
-	if($manage -eq "Uninstalling"){
-            write-host "Starting uninstall of $($Program.choco) with Chocolatey."
-            try{
-		$uninstallOutputFilePath = "$env:TEMP\Install-WinUtilProgramChoco.uninstall-command.output.txt"
-        New-Item -ItemType File -Path $uninstallOutputFilePath
-		$chocoUninstallStatus = $(Start-Process -FilePath "choco" -ArgumentList "uninstall $($Program.choco) -y" -Wait -PassThru).ExitCode
-		if($chocoUninstallStatus -eq 0){
-                    Write-Host "$($Program.choco) uninstalled successfully using Chocolatey."
-                    continue
-                } else {
-                    Write-Host "Failed to uninstall $($Program.choco) using Chocolatey, Chocolatey output:`n`n$(Get-Content -Path $uninstallOutputFilePath)."
-                }
-            } catch {
-                Write-Host "Failed to uninstall $($Program.choco) due to an error: $_"
-            }
-	}
-        $x++
+        if ($ProgressSpan -gt 0 -and $total -gt 0) {
+            Step-WinUtilJob -Status "$Action $program ($index/$total)" -Percent ($ProgressBase + [int](($index / $total) * $ProgressSpan))
+        }
+
+        [pscustomobject]@{
+            Package = $program
+            Manager = "choco"
+            Action = $Action
+            ExitCode = $exitCode
+            Outcome = $outcome
+            Detail = $detail
+        }
     }
-    Write-Progress -Activity "$manage Applications" -Status "Finished" -Completed
-
-    # Cleanup leftovers files
-    if(Test-Path -Path $installOutputFilePath){ Remove-Item -Path $installOutputFilePath }
-    if(Test-Path -Path $installOutputFilePath){ Remove-Item -Path $uninstallOutputFilePath }
-
-    return;
 }

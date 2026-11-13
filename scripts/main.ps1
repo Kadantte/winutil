@@ -1,483 +1,171 @@
-# SPDX-License-Identifier: MIT
-# Set the maximum number of threads for the RunspacePool to the number of threads on the machine
-$maxthreads = [int]$env:NUMBER_OF_PROCESSORS
+Write-Host @"
+    CCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+ CCC::::::::::::CT:::::::::::::::::::::TT:::::::::::::::::::::T
+CC:::::::::::::::CT:::::::::::::::::::::TT:::::::::::::::::::::T
+C:::::CCCCCCCC::::CT:::::TT:::::::TT:::::TT:::::TT:::::::TT:::::T
+C:::::C       CCCCCCTTTTTT  T:::::T  TTTTTTTTTTTT  T:::::T  TTTTTT
+C:::::C                     T:::::T                T:::::T
+C:::::C                     T:::::T                T:::::T
+C:::::C                     T:::::T                T:::::T
+C:::::C                     T:::::T                T:::::T
+C:::::C                     T:::::T                T:::::T
+C:::::C                     T:::::T                T:::::T
+C:::::C       CCCCCC        T:::::T                T:::::T
+C:::::CCCCCCCC::::C      TT:::::::TT            TT:::::::TT
+CC:::::::::::::::C       T:::::::::T            T:::::::::T
+CCC::::::::::::C         T:::::::::T            T:::::::::T
+  CCCCCCCCCCCCC          TTTTTTTTTTT            TTTTTTTTTTT
 
-# Create a new session state for parsing variables into our runspace
-$hashVars = New-object System.Management.Automation.Runspaces.SessionStateVariableEntry -ArgumentList 'sync',$sync,$Null
-$InitialSessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+====Chris Titus Tech=====
+=====Windows Toolbox=====
+"@
 
-# Add the variable to the session state
-$InitialSessionState.Variables.Add($hashVars)
+Write-WinUtilLog -Message "WinUtil $($sync.version) on PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition)), $([Environment]::OSVersion.VersionString), process $PID."
 
-# Get every private function and add them to the session state
-$functions = Get-ChildItem function:\ | Where-Object {$_.name -like "*winutil*" -or $_.name -like "*WPF*"}
-foreach ($function in $functions){
-    $functionDefinition = Get-Content function:\$($function.name)
-    $functionEntry = New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry -ArgumentList $($function.name), $functionDefinition
+# Load the configuration files
 
-    $initialSessionState.Commands.Add($functionEntry)
+$sync.configs.applicationsHashtable = @{}
+$sync.configs.applications.PSObject.Properties | ForEach-Object {
+    $sync.configs.applicationsHashtable[$_.Name] = $_.Value
 }
 
-# Create the runspace pool
-$sync.runspace = [runspacefactory]::CreateRunspacePool(
-    1,                      # Minimum thread count
-    $maxthreads,            # Maximum thread count
-    $InitialSessionState,   # Initial session state
-    $Host                   # Machine to create runspaces on
-)
-
-# Open the RunspacePool instance
-$sync.runspace.Open()
-
-# Create classes for different exceptions
-
-    class WingetFailedInstall : Exception {
-        [string] $additionalData
-
-        WingetFailedInstall($Message) : base($Message) {}
-    }
-
-    class ChocoFailedInstall : Exception {
-        [string] $additionalData
-
-        ChocoFailedInstall($Message) : base($Message) {}
-    }
-
-    class GenericException : Exception {
-        [string] $additionalData
-
-        GenericException($Message) : base($Message) {}
-    }
-
-
-$inputXML = $inputXML -replace 'mc:Ignorable="d"', '' -replace "x:N", 'N' -replace '^<Win.*', '<Window'
-
-if ((Get-WinUtilToggleStatus WPFToggleDarkMode) -eq $True) {
-    if (Invoke-WinUtilGPU -eq $True) {
-        $ctttheme = 'Matrix'
-    }
-    else {
-        $ctttheme = 'Dark'
-    }
+$sync.configs.appxHashtable = @{}
+$sync.configs.appx.PSObject.Properties | ForEach-Object {
+    $sync.configs.appxHashtable[$_.Name] = $_.Value
 }
-else {
-    $ctttheme = 'Classic'
-}
-$inputXML = Set-WinUtilUITheme -inputXML $inputXML -themeName $ctttheme
+$sync.preferences.theme = "Auto"
+$sync.preferences.packagemanager = "Winget"
 
-[void][System.Reflection.Assembly]::LoadWithPartialName('presentationframework')
-[xml]$XAML = $inputXML
+function Remove-WinUtilTempScript {
+    <#
+    .SYNOPSIS
+        Removes the temporary script downloaded by windev.ps1.
 
-# Read the XAML file
-$reader = (New-Object System.Xml.XmlNodeReader $xaml)
-try { $sync["Form"] = [Windows.Markup.XamlReader]::Load( $reader ) }
-catch [System.Management.Automation.MethodInvocationException] {
-    Write-Warning "We ran into a problem with the XAML code.  Check the syntax for this control..."
-    Write-Host $error[0].Exception.Message -ForegroundColor Red
-    If ($error[0].Exception.Message -like "*button*") {
-        write-warning "Ensure your &lt;button in the `$inputXML does NOT have a Click=ButtonClick property.  PS can't handle this`n`n`n`n"
-    }
-}
-catch {
-    Write-Host "Unable to load Windows.Markup.XamlReader. Double-check syntax and ensure .net is installed."
-}
+    .DESCRIPTION
+        Deletes the current script only when it is a winutil-*.ps1 file in
+        the system temporary directory. This preserves normal file-backed
+        and in-memory WinUtil launches.
+    #>
 
-#===========================================================================
-# Store Form Objects In PowerShell
-#===========================================================================
+    $scriptPath = $PSCommandPath
+    $tempPath = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
 
-$xaml.SelectNodes("//*[@Name]") | ForEach-Object {$sync["$("$($psitem.Name)")"] = $sync["Form"].FindName($psitem.Name)}
-
-$sync.keys | ForEach-Object {
-    if($sync.$psitem){
-        if($($sync["$psitem"].GetType() | Select-Object -ExpandProperty Name) -eq "CheckBox" `
-                -and $sync["$psitem"].Name -like "WPFToggle*"){
-            $sync["$psitem"].IsChecked = Get-WinUtilToggleStatus $sync["$psitem"].Name
-
-            $sync["$psitem"].Add_Click({
-                [System.Object]$Sender = $args[0]
-                Invoke-WPFToggle $Sender.name
-            })
-        }
-
-        if($($sync["$psitem"].GetType() | Select-Object -ExpandProperty Name) -eq "ToggleButton"){
-            $sync["$psitem"].Add_Click({
-                [System.Object]$Sender = $args[0]
-                Invoke-WPFButton $Sender.name
-            })
-        }
-
-        if($($sync["$psitem"].GetType() | Select-Object -ExpandProperty Name) -eq "Button"){
-            $sync["$psitem"].Add_Click({
-                [System.Object]$Sender = $args[0]
-                Invoke-WPFButton $Sender.name
-            })
-        }
-
-        if ($($sync["$psitem"].GetType() | Select-Object -ExpandProperty Name) -eq "TextBlock") {
-            if ($sync["$psitem"].Name.EndsWith("Link")) {
-                $sync["$psitem"].Add_MouseUp({
-                    [System.Object]$Sender = $args[0]
-                    Start-Process $Sender.ToolTip -ErrorAction Stop
-                    Write-Debug "Opening: $($Sender.ToolTip)"
-                })
-            }
-
-        }
+    if (
+        $scriptPath -and
+        [IO.Path]::GetDirectoryName($scriptPath) -eq $tempPath -and
+        [IO.Path]::GetFileName($scriptPath) -like 'winutil-*.ps1'
+    ) {
+        Remove-Item -LiteralPath $scriptPath -Force -ErrorAction SilentlyContinue
     }
 }
 
 #===========================================================================
-# Setup background config
+# Headless runs never build a window
 #===========================================================================
 
-# Load computer information in the background
-Invoke-WPFRunspace -ScriptBlock {
-    $sync.ConfigLoaded = $False
-    $sync.ComputerInfo = Get-ComputerInfo
-    $sync.ConfigLoaded = $True
-} | Out-Null
-
-#===========================================================================
-# Setup and Show the Form
-#===========================================================================
-
-# Print the logo
-Invoke-WPFFormVariables
-
-# Install Winget if not already present
-Install-WinUtilWinget
-
-# Set the titlebar
-$sync["Form"].title = $sync["Form"].title + " " + $sync.version
-# Set the commands that will run when the form is closed
-$sync["Form"].Add_Closing({
-    $sync.runspace.Dispose()
-    $sync.runspace.Close()
-    [System.GC]::Collect()
-})
-
-# Attach the event handler to the Click event
-$sync.CheckboxFilterClear.Add_Click({
-    $sync.CheckboxFilter.Text = ""
-    $sync.CheckboxFilterClear.Visibility = "Collapsed"
-})
-
-# add some shortcuts for people that don't like clicking
-$commonKeyEvents = {
-    if ($sync.ProcessRunning -eq $true) {
-        return
-    }
-
-    if ($_.Key -eq "Escape")
-    {
-        $sync.CheckboxFilter.SelectAll()
-        $sync.CheckboxFilter.Text = ""
-        $sync.CheckboxFilterClear.Visibility = "Collapsed"
-        return
-    }
-
-    # don't ask, I know what I'm doing, just go...
-    if (($_.Key -eq "Q" -and $_.KeyboardDevice.Modifiers -eq "Ctrl"))
-    {
-        $this.Close()
-    }
-    if ($_.KeyboardDevice.Modifiers -eq "Alt") {
-        if ($_.SystemKey -eq "I") {
-            Invoke-WPFButton "WPFTab1BT"
-        }
-        if ($_.SystemKey -eq "T") {
-            Invoke-WPFButton "WPFTab2BT"
-        }
-        if ($_.SystemKey -eq "C") {
-            Invoke-WPFButton "WPFTab3BT"
-        }
-        if ($_.SystemKey -eq "U") {
-            Invoke-WPFButton "WPFTab4BT"
-        }
-        if ($_.SystemKey -eq "M") {
-            Invoke-WPFButton "WPFTab5BT"
-        }
-        if ($_.SystemKey -eq "P") {
-            Write-Host "Your Windows Product Key: $((Get-WmiObject -query 'select * from SoftwareLicensingService').OA3xOriginalProductKey)"
-        }
-    }
-    # shortcut for the filter box
-    if ($_.Key -eq "F" -and $_.KeyboardDevice.Modifiers -eq "Ctrl") {
-        if ($sync.CheckboxFilter.Text -eq "Ctrl-F to filter") {
-            $sync.CheckboxFilter.SelectAll()
-            $sync.CheckboxFilter.Text = ""
-        }
-        $sync.CheckboxFilter.Focus()
-    }
-}
-
-$sync["Form"].Add_PreViewKeyDown($commonKeyEvents)
-
-$sync["Form"].Add_MouseLeftButtonDown({
-    if ($sync["SettingsPopup"].IsOpen) {
-        $sync["SettingsPopup"].IsOpen = $false
-    }
-    $sync["Form"].DragMove()
-})
-
-$sync["Form"].Add_MouseDoubleClick({
-    if ($sync["Form"].WindowState -eq [Windows.WindowState]::Normal)
-    {
-        $sync["Form"].WindowState = [Windows.WindowState]::Maximized;
-    }
-    else
-    {
-        $sync["Form"].WindowState = [Windows.WindowState]::Normal;
-    }
-})
-
-$sync["Form"].Add_Deactivated({
-    Write-Debug "WinUtil lost focus"
-    if ($sync["SettingsPopup"].IsOpen) {
-        $sync["SettingsPopup"].IsOpen = $false
-    }
-})
-
-$sync["Form"].Add_ContentRendered({
-
+if ($Preset -or $Config) {
+    $headlessCode = 1
     try {
-        [void][Window]
+        Initialize-WinUtilRunspacePool | Out-Null
+
+        if ($Preset) {
+            if (-not $sync.configs.preset.$Preset) {
+                throw "There is no preset called '$Preset'. Available: $(($sync.configs.preset.PSObject.Properties.Name) -join ', ')"
+            }
+            Write-WinUtilLog -Component "AutoRun" -Message "Applying preset '$Preset'."
+            # SkipUnknown so a retired entry in a preset is named and stepped over rather than
+            # ending a headless run that has nobody to read the error
+            $skipped = @(Update-WinUtilSelections -flatJson $sync.configs.preset.$Preset -SkipUnknown)
+            if ($skipped.Count -gt 0) {
+                Write-WinUtilLog -Level "WARN" -Component "AutoRun" -Message "Preset '$Preset' names $($skipped.Count) entr(y/ies) this version does not have: $($skipped -join ', ')"
+            }
+        }
+
+        # Both may be given: the preset sets a baseline and the config adds to it
+        if ($Config) {
+            Write-WinUtilLog -Component "AutoRun" -Message "Importing selections from '$Config'."
+            Invoke-WPFImpex -type "import" -Config $Config -Merge:([bool]$Preset) -ThrowOnError
+        }
+
+        $summary = Invoke-WinUtilAutoRun
+        $headlessCode = Write-WinUtilAutoRunSummary -Summary $summary
     } catch {
-Add-Type @"
-        using System;
-        using System.Runtime.InteropServices;
-        public class Window {
-            [DllImport("user32.dll")]
-            public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-
-            [DllImport("user32.dll")]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-            [DllImport("user32.dll")]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool MoveWindow(IntPtr handle, int x, int y, int width, int height, bool redraw);
-
-            [DllImport("user32.dll")]
-            public static extern int GetSystemMetrics(int nIndex);
-        };
-        public struct RECT {
-            public int Left;   // x position of upper-left corner
-            public int Top;    // y position of upper-left corner
-            public int Right;  // x position of lower-right corner
-            public int Bottom; // y position of lower-right corner
-        }
-"@
+        Write-WinUtilErrorRecord -ErrorRecord $_ -Component "AutoRun" -Context "Headless run"
+        Write-Host "WinUtil could not complete the headless run: $($_.Exception.Message)" -ForegroundColor Red
+        $headlessCode = 1
+    } finally {
+        Close-WinUtilRunspacePool
+        [System.GC]::Collect()
+        Remove-WinUtilTempScript
+        Close-WinUtilLog
     }
 
-   foreach ($proc in (Get-Process | Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle -like "*titus*" })) {
-        # Check if the process's MainWindowHandle is valid
-    	if ($proc.MainWindowHandle -ne [System.IntPtr]::Zero) {
-            Write-Debug "MainWindowHandle: $($proc.Id) $($proc.MainWindowTitle) $($proc.MainWindowHandle)"
-            $windowHandle = $proc.MainWindowHandle
-	    } else {
-        	Write-Warning "Process found, but no MainWindowHandle: $($proc.Id) $($proc.MainWindowTitle)"
-    
-        }
+    # An isolated elevated child and an explicit file launch own their process. The documented
+    # in-memory invocation runs inside the caller's terminal and must return without closing it.
+    if ($env:WINUTIL_HEADLESS_CHILD -eq "1" -or $script:WinUtilIsFileProcess) {
+        exit $headlessCode
     }
+    $global:LASTEXITCODE = $headlessCode
+    return $headlessCode
+}
 
-    # need to experiemnt more
-    # setting icon for the windows is still not working
-    # $pngUrl = "https://christitus.com/images/logo-full.png"
-    # $pngPath = "$env:TEMP\cttlogo.png"
-    # $iconPath = "$env:TEMP\cttlogo.ico"
-    # # Download the PNG file
-    # Invoke-WebRequest -Uri $pngUrl -OutFile $pngPath
-    # if (Test-Path -Path $pngPath) {
-    #     ConvertTo-Icon -bitmapPath $pngPath -iconPath $iconPath
-    # }
-    # $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($iconPath)
-    # Write-Host $icon.Handle
-    # [Window]::SendMessage($windowHandle, 0x80, [IntPtr]::Zero, $icon.Handle)
+#===========================================================================
+# Start the interface on its own thread and manage it from here
+#===========================================================================
+#
+# The main thread stays out of the window's way. It creates the dedicated STA runspace the
+# interface lives on, waits for that window to close, and reports anything the interface
+# thread failed with. Work started from the interface goes to the worker pool through
+# Start-WinUtilJob, so neither the window nor this thread is ever blocked by it.
 
-    $rect = New-Object RECT
-    [Window]::GetWindowRect($windowHandle, [ref]$rect)
-    $width  = $rect.Right  - $rect.Left
-    $height = $rect.Bottom - $rect.Top
+$sync.UIRunspace = [runspacefactory]::CreateRunspace($Host, (New-WinUtilSessionState))
+$sync.UIRunspace.ApartmentState = "STA"
+$sync.UIRunspace.ThreadOptions = "ReuseThread"
+$sync.UIRunspace.Open()
 
-    Write-Debug "UpperLeft:$($rect.Left),$($rect.Top) LowerBottom:$($rect.Right),$($rect.Bottom). Width:$($width) Height:$($height)"
+$uiShell = [powershell]::Create()
+$uiShell.Runspace = $sync.UIRunspace
+[void]$uiShell.AddScript({ Start-WinUtilUserInterface })
 
-    # Load the Windows Forms assembly
-    Add-Type -AssemblyName System.Windows.Forms
-    $primaryScreen = [System.Windows.Forms.Screen]::PrimaryScreen
-    # Check if the primary screen is found
-    if ($primaryScreen) {
-        # Extract screen width and height for the primary monitor
-        $screenWidth = $primaryScreen.Bounds.Width
-        $screenHeight = $primaryScreen.Bounds.Height
+Write-WinUtilLog -Component "UI" -Message "Starting the interface thread."
+$uiHandle = $uiShell.BeginInvoke()
 
-        # Print the screen size
-        Write-Debug "Primary Monitor Width: $screenWidth pixels"
-        Write-Debug "Primary Monitor Height: $screenHeight pixels"
+# This thread has nothing to do but wait, so it pays for the overlay render rather than
+# leaving it to the thread that is building the window
+Start-WinUtilAssetRendering | Out-Null
 
-        # Compare with the primary monitor size
-        if ($width -gt $screenWidth -or $height -gt $screenHeight) {
-            Write-Debug "The specified width and/or height is greater than the primary monitor size."
-            [void][Window]::MoveWindow($windowHandle, 0, 0, $screenWidth, $screenHeight, $True)
-        } else {
-            Write-Debug "The specified width and height are within the primary monitor size limits."
-        }
-    } else {
-        Write-Debug "Unable to retrieve information about the primary monitor."
-    }
+# Log the UI thread's Write-Host output, warnings and errors while the window is open
+while (-not $uiHandle.AsyncWaitHandle.WaitOne(250)) {
+    Receive-WinUtilStreamOutput -PowerShell $uiShell -Component "UI"
+}
 
-    Invoke-WPFTab "WPFTab1BT"
-    $sync["Form"].Focus()
+$uiFailed = $false
+try {
+    $uiShell.EndInvoke($uiHandle) | Out-Null
+} catch {
+    $uiFailed = $true
+    Write-WinUtilErrorRecord -ErrorRecord $_ -Component "UI" -Context "Interface thread stopped"
+}
 
-    # maybe this is not the best place to load and execute config file?
-    # maybe community can help?
-    if ($PARAM_CONFIG){
-        Invoke-WPFImpex -type "import" -Config $PARAM_CONFIG
-        if ($PARAM_RUN){
-            while ($sync.ProcessRunning) {
-                Start-Sleep -Seconds 5
-            }
-            Start-Sleep -Seconds 5
+Receive-WinUtilStreamOutput -PowerShell $uiShell -Component "UI"
 
-            Write-Host "Applying tweaks..."
-            Invoke-WPFtweaksbutton
-            while ($sync.ProcessRunning) {
-                Start-Sleep -Seconds 5
-            }
-            Start-Sleep -Seconds 5
+$uiShell.Dispose()
+$sync.UIRunspace.Dispose()
+$sync.Remove("UIRunspace")
 
-            Write-Host "Installing features..."
-            Invoke-WPFFeatureInstall
-            while ($sync.ProcessRunning) {
-                Start-Sleep -Seconds 5
-            }
+# The window may have been closed over a job that the user chose to let finish. It is still on
+# the worker pool, so the pool cannot be closed until it is done.
+Wait-WinUtilRemainingWork
 
-            Start-Sleep -Seconds 5
-            Write-Host "Installing applications..."
-            while ($sync.ProcessRunning) {
-                Start-Sleep -Seconds 1
-            }
-            Invoke-WPFInstall
-            Start-Sleep -Seconds 5
+Close-WinUtilRunspacePool
+[System.GC]::Collect()
 
-            Write-Host "Done."
-        }
-    }
+Remove-WinUtilTempScript
+Write-Host "Bye bye!" -ForegroundColor Cyan
+Close-WinUtilLog
 
-})
-
-# Load Checkboxes and Labels outside of the Filter fuction only once on startup for performance reasons
-$filter = Get-WinUtilVariables -Type CheckBox
-$CheckBoxes = $sync.GetEnumerator() | Where-Object { $psitem.Key -in $filter }
-
-$filter = Get-WinUtilVariables -Type Label
-$labels = @{}
-$sync.GetEnumerator() | Where-Object {$PSItem.Key -in $filter} | ForEach-Object {$labels[$_.Key] = $_.Value}
-
-$allCategories = $checkBoxes.Name | ForEach-Object {$sync.configs.applications.$_} | Select-Object  -Unique -ExpandProperty category    
-
-$sync["CheckboxFilter"].Add_TextChanged({
-
-    if ($sync.CheckboxFilter.Text -ne "") {
-        $sync.CheckboxFilterClear.Visibility = "Visible"
-    }
-    else {
-        $sync.CheckboxFilterClear.Visibility = "Collapsed"
-    }
-
-    $activeApplications = @()
-
-    foreach ($CheckBox in $CheckBoxes) {
-        # Check if the checkbox is null or if it doesn't have content
-        if ($CheckBox -eq $null -or $CheckBox.Value -eq $null -or $CheckBox.Value.Content -eq $null) {
-            continue
-        }
-
-        $textToSearch = $sync.CheckboxFilter.Text.ToLower()
-        $checkBoxName = $CheckBox.Key
-        $textBlockName = $checkBoxName + "Link"
-
-        # Retrieve the corresponding text block based on the generated name
-        $textBlock = $sync[$textBlockName]
-
-        if ($CheckBox.Value.Content.ToLower().Contains($textToSearch)) {
-            $CheckBox.Value.Visibility = "Visible"
-            $activeApplications += $sync.configs.applications.$checkboxName
-             # Set the corresponding text block visibility
-            if ($textBlock -ne $null) {
-                $textBlock.Visibility = "Visible"
-            }
-        }
-        else {
-             $CheckBox.Value.Visibility = "Collapsed"
-            # Set the corresponding text block visibility
-            if ($textBlock -ne $null) {
-                $textBlock.Visibility = "Collapsed"
-            }
-        }
-    }
-    $activeCategories = $activeApplications | Select-Object -ExpandProperty category -Unique
-
-    foreach ($category in $activeCategories){
-        $label = $labels[$(Get-WPFObjectName -type "Label" -name $category)]
-        $label.Visibility = "Visible"
-    }
-    if ($activeCategories){
-        $inactiveCategories = Compare-Object -ReferenceObject $allCategories -DifferenceObject $activeCategories -PassThru
-    }
-    else{
-        $inactiveCategories = $allCategories
-    }
-    foreach ($category in $inactiveCategories){
-        $label = $labels[$(Get-WPFObjectName -type "Label" -name $category)]
-        $label.Visibility = "Collapsed"}
-})
-
-# Define event handler for button click
-$sync["SettingsButton"].Add_Click({
-    Write-Debug "SettingsButton clicked"
-    if ($sync["SettingsPopup"].IsOpen) {
-        $sync["SettingsPopup"].IsOpen = $false
-    }
-    else {
-        $sync["SettingsPopup"].IsOpen = $true
-    }
-    $_.Handled = $false
-})
-
-# Define event handlers for menu items
-$sync["ImportMenuItem"].Add_Click({
-  # Handle Import menu item click
-  Write-Debug "Import clicked"
-  $sync["SettingsPopup"].IsOpen = $false
-  Invoke-WPFImpex -type "import"
-  $_.Handled = $false
-})
-
-$sync["ExportMenuItem"].Add_Click({
-    # Handle Export menu item click
-    Write-Debug "Export clicked"
-    $sync["SettingsPopup"].IsOpen = $false
-    Invoke-WPFImpex -type "export"
-    $_.Handled = $false
-})
-
-$sync["AboutMenuItem"].Add_Click({
-    # Handle Export menu item click
-    Write-Debug "About clicked"
-    $sync["SettingsPopup"].IsOpen = $false
-    # Example usage
-    $authorInfo = @"
-Author   : @christitustech
-Runspace : @DeveloperDurp
-GUI      : @KonTy
-MicroWin : @KonTy
-GitHub   : https://github.com/ChrisTitusTech/winutil
-Version  : $($sync.version)
-"@
-    Show-CustomDialog -Message $authorInfo -Width 400
-})
-
-$sync["Form"].ShowDialog() | out-null
-Stop-Transcript
+if ($uiFailed) {
+    $global:LASTEXITCODE = 1
+    if ($script:WinUtilIsFileProcess) { exit 1 }
+    return 1
+}

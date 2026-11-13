@@ -1,10 +1,5 @@
 function Invoke-WPFPanelAutologin {
-    <#
-
-    .SYNOPSIS
-        Enables autologin using Sysinternals Autologon.exe
-
-    #>
-    curl.exe -ss "https://live.sysinternals.com/Autologon.exe" -o $env:temp\autologin.exe # Official Microsoft recommendation https://learn.microsoft.com/en-us/sysinternals/downloads/autologon
-    cmd /c $env:temp\autologin.exe /accepteula
+    $autologonPath = Join-Path $sync.winutildir "autologin.exe"
+    Invoke-WebRequest -Uri https://live.sysinternals.com/Autologon.exe -OutFile $autologonPath
+    Start-Process -FilePath $autologonPath -ArgumentList /accepteula
 }

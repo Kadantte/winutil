@@ -1,78 +1,40 @@
-Function Invoke-WPFUltimatePerformance {
+function Invoke-WPFUltimatePerformance ([switch]$Enable) {
     <#
 
     .SYNOPSIS
-        Creates or removes the Ultimate Performance power scheme
-
-    .PARAMETER State
-        Indicates whether to enable or disable the Ultimate Performance power scheme
+        Adds or removes the Ultimate Performance power plan
 
     #>
-    param($State)
-    Try{
 
-        if($state -eq "Enabled"){
-            # Define the name and GUID of the power scheme
-            $powerSchemeName = "Ultimate Performance"
-            $powerSchemeGuid = "e9a42b02-d5df-448d-aa00-03f14749eb61"
+    if ($Enable) {
+        Step-WinUtilJob -Status "Adding the Ultimate Performance power plan" -State "Indeterminate"
+        Write-WinUtilLog -Component "Power" -Message "Duplicating and activating the Ultimate Performance power plan."
 
-            # Get all power schemes
-            $schemes = powercfg /list | Out-String -Stream
-
-            # Check if the power scheme already exists
-            $ultimateScheme = $schemes | Where-Object { $_ -match $powerSchemeName }
-
-            if ($null -eq $ultimateScheme) {
-                Write-Host "Power scheme '$powerSchemeName' not found. Adding..."
-
-                # Add the power scheme
-                powercfg /duplicatescheme $powerSchemeGuid
-                powercfg -attributes SUB_SLEEP 7bc4a2f9-d8fc-4469-b07b-33eb785aaca0 -ATTRIB_HIDE
-                powercfg -setactive $powerSchemeGuid
-                powercfg -change -monitor-timeout-ac 0
-
-
-                Write-Host "Power scheme added successfully."
-            }
-            else {
-                Write-Host "Power scheme '$powerSchemeName' already exists."
-            }
+        $duplicated = powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+        if ($LASTEXITCODE -ne 0) {
+            throw "powercfg could not duplicate the Ultimate Performance scheme (exit code $LASTEXITCODE)."
         }
-        elseif($state -eq "Disabled"){
-                # Define the name of the power scheme
-                $powerSchemeName = "Ultimate Performance"
 
-                # Get all power schemes
-                $schemes = powercfg /list | Out-String -Stream
+        $guid = ($duplicated | Select-String -Pattern '[A-Fa-f0-9-]{36}').Matches.Value
+        if (-not $guid) {
+            throw "powercfg did not report a scheme GUID to activate."
+        }
 
-                # Find the scheme to be removed
-                $ultimateScheme = $schemes | Where-Object { $_ -match $powerSchemeName }
+        powercfg /setactive $guid
+        if ($LASTEXITCODE -ne 0) {
+            throw "powercfg could not activate the Ultimate Performance scheme (exit code $LASTEXITCODE)."
+        }
 
-                # If the scheme exists, remove it
-                if ($null -ne $ultimateScheme) {
-                    # Extract the GUID of the power scheme
-                    $guid = ($ultimateScheme -split '\s+')[3]
+        Write-WinUtilLog -Component "Power" -Message "Ultimate Performance power plan installed and activated."
+    } else {
+        Step-WinUtilJob -Status "Restoring the default power plans" -State "Indeterminate"
+        Write-WinUtilLog -Component "Power" -Message "Restoring the default power schemes."
 
-                    if($null -ne $guid){
-                        Write-Host "Found power scheme '$powerSchemeName' with GUID $guid. Removing..."
+        powercfg /restoredefaultschemes
+        if ($LASTEXITCODE -ne 0) {
+            throw "powercfg could not restore the default power schemes (exit code $LASTEXITCODE)."
+        }
 
-                        # Remove the power scheme
-                        powercfg /delete $guid
-
-                        Write-Host "Power scheme removed successfully."
-                    }
-                    else {
-                        Write-Host "Could not find GUID for power scheme '$powerSchemeName'."
-                    }
-                }
-                else {
-                    Write-Host "Power scheme '$powerSchemeName' not found."
-                }
-
-            }
-
-    }
-    Catch{
-        Write-Warning $psitem.Exception.Message
+        Write-WinUtilLog -Component "Power" -Message "Power plans were reset to defaults."
     }
 }
